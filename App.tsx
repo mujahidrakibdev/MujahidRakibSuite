@@ -23,11 +23,15 @@ const App: React.FC = () => {
         
         {/* Top Bar with Brand (Only visible on home) */}
         {currentView === 'home' && (
-          <div className="flex items-center justify-between mb-8 pb-4">
-             <div className="flex items-center gap-2 select-none opacity-80 hover:opacity-100 transition-opacity">
-                <div className="flex items-center gap-1">
-                    <Terminal className="w-5 h-5 text-indigo-500 mr-2" />
-                    <h1 className="text-xl font-black italic tracking-tighter">
+          <div className="flex items-center justify-between mb-8 pb-4 animate-fade-in">
+             <div className="flex items-center gap-2 select-none opacity-90 hover:opacity-100 transition-opacity">
+                <div className="flex items-center gap-3">
+                    {/* Colorful Logo Icon Container */}
+                    <div className="bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 p-2 rounded-lg border border-indigo-400/30 shadow-[0_0_15px_rgba(99,102,241,0.4)]">
+                        <Terminal className="w-5 h-5 text-white fill-white/20" strokeWidth={2.5} />
+                    </div>
+                    {/* Restored Space Grotesk Font for Logo */}
+                    <h1 className="text-xl font-bold tracking-tight font-['Space_Grotesk']">
                         <span className="text-white">Mujahid</span>
                         <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-violet-400">Rakib</span>
                     </h1>
@@ -64,8 +68,11 @@ const App: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-8">
                 <div>
                     <div className="flex items-center gap-2 mb-4">
-                        <Terminal className="w-5 h-5 text-indigo-500" />
-                         <h1 className="text-lg font-black italic tracking-tighter">
+                        <div className="bg-gradient-to-br from-slate-800 to-slate-700 p-1.5 rounded-lg border border-slate-600/50">
+                             <Terminal className="w-4 h-4 text-indigo-400 fill-indigo-500/20" />
+                        </div>
+                         {/* Restored Space Grotesk Font for Footer Logo */}
+                         <h1 className="text-lg font-bold tracking-tight font-['Space_Grotesk']">
                             <span className="text-white">Mujahid</span>
                             <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-violet-400">Rakib</span>
                         </h1>

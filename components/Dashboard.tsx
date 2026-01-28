@@ -9,11 +9,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ onSelectTool }) => {
   return (
     <div className="w-full animate-fade-in py-10">
        <div className="text-center mb-16 space-y-4">
-           {/* Unique Professional Hero Title */}
-           <h1 className="text-5xl md:text-6xl font-black tracking-tighter mb-2">
-              <span className="text-white font-sans italic">Mujahid</span>
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-purple-400 to-violet-400 font-mono">Rakib</span>
-              <span className="text-slate-600 text-3xl md:text-4xl font-light ml-3 font-sans">Suite</span>
+           {/* Unique Professional Hero Title with Godber (Fraunces) Font */}
+           <h1 className="text-5xl md:text-7xl font-black tracking-tight mb-2">
+              <span className="text-white font-godber">Mujahid</span>
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-purple-400 to-violet-400 font-godber">Rakib</span>
+              <span className="text-slate-600 text-3xl md:text-4xl font-light ml-3 font-sans align-middle tracking-normal">Suite</span>
            </h1>
            <p className="text-slate-400 text-lg max-w-xl mx-auto font-medium">
               Professional automation workspace for data extraction, deep analytics, and AI voice generation.
