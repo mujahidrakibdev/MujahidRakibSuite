@@ -1,8 +1,8 @@
-import { VideoData, VideoType } from '../types';
+import { VideoData, VideoType, TranscriptProvider } from '../types';
 
 const BASE_URL = 'https://www.googleapis.com/youtube/v3';
-const TRANSCRIPT_API_HOST = 'youtube-transcriptor.p.rapidapi.com';
-const TRANSCRIPT_API_URL = `https://${TRANSCRIPT_API_HOST}/transcript`;
+const RAPID_API_HOST = 'youtube-transcripts.p.rapidapi.com';
+const SUPADATA_API_URL = 'https://api.supadata.ai/v1';
 
 // Helper: Parse ISO 8601 duration to seconds
 export const parseDurationToSeconds = (duration: string): number => {
@@ -93,86 +93,187 @@ export const getVideoDetails = async (videoIds: string[], apiKey: string): Promi
     title: item.snippet.title,
     url: `https://www.youtube.com/watch?v=${item.id}`,
     thumbnail: item.snippet.thumbnails?.maxres?.url || item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.medium?.url,
-    viewCount: item.statistics.viewCount,
+    viewCount: item.statistics.viewCount || '0',
+    likeCount: item.statistics.likeCount || '0',
+    commentCount: item.statistics.commentCount || '0',
     publishedAt: item.snippet.publishedAt,
     duration: item.contentDetails.duration,
     channelTitle: item.snippet.channelTitle,
+    channelId: item.snippet.channelId,
+    tags: item.snippet.tags || [],
+    description: item.snippet.description || '',
+    categoryId: item.snippet.categoryId,
     transcript: '', 
   }));
 };
 
-// Helper: Fetch Transcript from RapidAPI
-export const fetchTranscript = async (videoId: string, rapidApiKey: string): Promise<string> => {
-  if (!rapidApiKey) return "Error: No RapidAPI Key provided";
-
-  // Use URLSearchParams for safe encoding
-  const params = new URLSearchParams();
-  params.append('video_id', videoId);
-  params.append('lang', 'en'); 
-
-  const url = `${TRANSCRIPT_API_URL}?${params.toString()}`;
+// Helper: normalize transcript content to plain text
+const normalizeTranscriptText = (content: any): string => {
+  if (!content) return "";
   
-  const options = {
-    method: 'GET',
-    headers: {
-      'x-rapidapi-key': rapidApiKey,
-      'x-rapidapi-host': TRANSCRIPT_API_HOST
-    }
-  };
+  // If it's already a string, return it
+  if (typeof content === 'string') {
+      return content.replace(/\s+/g, ' ').trim();
+  }
 
-  try {
-    const response = await fetch(url, options);
+  // If it's an array of segments (common structure: [{text: "...", ...}])
+  if (Array.isArray(content)) {
+    return content
+      .map((item: any) => item.text || item.snippet || "")
+      .join(" ")
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  // If it's an object, try to find a known text field or recurse
+  if (typeof content === 'object') {
+    if (content.text && typeof content.text === 'string') return content.text;
+    if (content.transcript) return normalizeTranscriptText(content.transcript);
+    // Last resort: stringify if it looks like unknown JSON
+    return JSON.stringify(content); 
+  }
+
+  return String(content);
+};
+
+// Helper: Safe JSON Parse from Fetch Response
+const safeJsonFetch = async (response: Response, errorPrefix: string): Promise<any> => {
+    const text = await response.text();
     
-    // Attempt to parse JSON first
-    const contentType = response.headers.get("content-type");
-    let result: any = null;
-    let textBody = "";
+    // Check for HTTP Errors first to give better messages
+    if (response.status === 401) throw new Error(`${errorPrefix}: Unauthorized (401) - Check API Key`);
+    if (response.status === 403) throw new Error(`${errorPrefix}: Forbidden (403) - Quota or Key issue`);
+    if (response.status === 404) throw new Error(`${errorPrefix}: Not Found (404)`);
+    if (response.status === 500) throw new Error(`${errorPrefix}: Server Error (500)`);
+    if (response.status === 502) throw new Error(`${errorPrefix}: Bad Gateway (502) - Service overloaded`);
 
-    if (contentType && contentType.includes("application/json")) {
-      try {
-        result = await response.json();
-      } catch (e) {
-        textBody = "Failed to parse JSON response";
-      }
-    } else {
-      textBody = await response.text();
+    try {
+        return JSON.parse(text);
+    } catch (e) {
+        // If parsing fails, it's likely an HTML error page (e.g. <!DOCTYPE...)
+        // We trim the text to avoid flooding logs with full HTML
+        const snippet = text.slice(0, 100).replace(/\n/g, ' ');
+        throw new Error(`${errorPrefix}: Invalid JSON response. Raw: "${snippet}..."`);
     }
+};
+
+// Implementation: RapidAPI (Veritoolz / youtube-transcripts)
+const fetchTranscriptRapid = async (videoId: string, apiKey: string): Promise<string> => {
+    // Veritoolz usually uses the youtube-transcripts.p.rapidapi.com endpoint
+    const url = `https://${RAPID_API_HOST}/youtube/transcript?url=https://www.youtube.com/watch?v=${videoId}`;
+    const options = {
+        method: 'GET',
+        headers: {
+            'x-rapidapi-key': apiKey,
+            'x-rapidapi-host': RAPID_API_HOST
+        }
+    };
+
+    const response = await fetch(url, options);
+    const data = await safeJsonFetch(response, "RapidAPI");
 
     if (!response.ok) {
-      // Return specific error details
-      const errorMsg = result 
-        ? (result.message || result.error || result.description || JSON.stringify(result)) 
-        : textBody;
-      return `Error: ${response.status} - ${errorMsg}`;
+        throw new Error(data.message || `RapidAPI Error ${response.status}`);
+    }
+
+    // Parse Response
+    if (data.content && Array.isArray(data.content)) {
+        return normalizeTranscriptText(data.content);
     }
     
-    // Success Case
-    if (result) {
-        // CRITICAL FIX: The API returns an array [ { ... } ], so we must check if it's an array and get the first item.
-        const data = Array.isArray(result) ? result[0] : result;
-
-        if (!data) return "Error: Empty data received from API";
-
-        if (data.transcriptionAsText) {
-            return data.transcriptionAsText;
-        } 
-        
-        if (data.error) {
-            return `API Error: ${data.error}`;
-        }
-        
-        // Sometimes valid but no subtitles
-        if (data.transcription && Array.isArray(data.transcription) && data.transcription.length === 0) {
-            return "No subtitles found for this video";
-        }
-
-        return "Error: Valid response but no 'transcriptionAsText' field found.";
+    if (Array.isArray(data)) {
+         return normalizeTranscriptText(data);
     }
 
-    return "Error: Empty response from API";
+    return "Unexpected response format from RapidAPI";
+}
+
+// Implementation: Supadata AI
+const fetchTranscriptSupadata = async (videoId: string, apiKey: string): Promise<string> => {
+    const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    const apiUrl = `${SUPADATA_API_URL}/transcript?url=${encodeURIComponent(videoUrl)}&text=true&mode=auto&lang=en`;
+
+    const response = await fetch(apiUrl, {
+        method: 'GET',
+        headers: {
+            'x-api-key': apiKey
+        }
+    });
+
+    // Handle Async Processing (HTTP 202)
+    if (response.status === 202) {
+        const data = await safeJsonFetch(response, "Supadata (Async)");
+        if (!data.jobId) throw new Error("Received 202 but no jobId from Supadata.");
+        return await pollSupadataJob(data.jobId, apiKey);
+    }
+
+    const data = await safeJsonFetch(response, "Supadata");
+
+    if (!response.ok) {
+        throw new Error(data.message || data.error || `Supadata Error ${response.status}`);
+    }
+
+    if (data.content !== undefined && data.content !== null) {
+        return normalizeTranscriptText(data.content);
+    }
+
+    throw new Error("Unexpected response format from Supadata.");
+};
+
+// Helper: Poll Supadata Job Status
+const pollSupadataJob = async (jobId: string, apiKey: string): Promise<string> => {
+    const pollUrl = `${SUPADATA_API_URL}/transcript/${jobId}`;
+    let attempts = 0;
+    const maxAttempts = 30; // ~60 seconds timeout (2s interval)
+
+    while (attempts < maxAttempts) {
+        // Wait 2 seconds
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        const response = await fetch(pollUrl, {
+            headers: { 'x-api-key': apiKey }
+        });
+        
+        const data = await safeJsonFetch(response, "Supadata Poll");
+
+        if (data.status === 'completed') {
+            return normalizeTranscriptText(data.content);
+        }
+        
+        if (data.status === 'failed') {
+            throw new Error(data.error || "Supadata transcription job failed.");
+        }
+
+        // If 'queued' or 'active', continue loop
+        attempts++;
+    }
+
+    throw new Error("Supadata transcription timed out.");
+};
+
+// Main Fetch Transcript Function (Router)
+export const fetchTranscript = async (
+    videoId: string, 
+    provider: TranscriptProvider, 
+    apiKey?: string
+): Promise<string> => {
+  try {
+    let result: unknown;
+    if (provider === 'rapid-api') {
+        if (!apiKey) throw new Error("RapidAPI Key is required.");
+        result = await fetchTranscriptRapid(videoId, apiKey);
+    } else if (provider === 'supadata') {
+        if (!apiKey) throw new Error("Supadata API Key is required.");
+        result = await fetchTranscriptSupadata(videoId, apiKey);
+    } else {
+        throw new Error("Invalid Transcription Provider selected.");
+    }
+
+    // Explicitly strict string return
+    return typeof result === 'string' ? result : String(result || '');
 
   } catch (error: any) {
-    return `Request Failed: ${error.message}`;
+    return `Error: ${error.message}`;
   }
 };
 
